@@ -3,11 +3,19 @@
  * Mirrors the JSON schema defined in appsec-agent/src/schemas/threat_model_report.ts.
  */
 
+export interface SourceLocation {
+  file: string
+  line_numbers?: string
+  symbol?: string
+  snippet?: string
+}
+
 export interface DFDNode {
   id: string
   name: string
   type: 'external_entity' | 'process' | 'data_store'
   description?: string
+  source_locations?: SourceLocation[]
 }
 
 export interface DFDDataFlow {
@@ -44,6 +52,7 @@ export interface Threat {
   likelihood: 'HIGH' | 'MEDIUM' | 'LOW'
   mitigation: string
   references?: string[]
+  source_locations?: SourceLocation[]
 }
 
 export interface ThreatModel {
@@ -67,6 +76,7 @@ export interface Risk {
   cost_estimate?: string
   timeline?: string
   related_threats?: string[]
+  source_locations?: SourceLocation[]
 }
 
 export interface RiskRegistry {

@@ -25,7 +25,7 @@
       "description": "Test DFD description for collapse and search. Docker and browser components exercise search and trust boundaries. Lorem ipsum dolor sit amet consectetur adipisicing elit. Quibusdam voluptatum expedita id repellat doloremque architecto nisi unde magni laborum distinctio. Additional padding ensures the description exceeds two hundred twenty characters for UI collapse tests.",
       "nodes": [
         { "id": "ee-1", "name": "Web Browser", "type": "external_entity", "description": "User agent" },
-        { "id": "proc-1", "name": "API Server", "type": "process", "description": "Backend" },
+        { "id": "proc-1", "name": "API Server", "type": "process", "description": "Backend", "source_locations": [{ "file": "src/api.py" }] },
         { "id": "ds-1", "name": "Database", "type": "data_store", "description": "SQLite" },
         { "id": "proc-2", "name": "Worker", "type": "process", "description": "Background" },
         { "id": "ee-2", "name": "External API", "type": "external_entity", "description": "Partner" },
@@ -55,7 +55,15 @@
           "description": "SQLi via input",
           "impact": "Data loss",
           "likelihood": "MEDIUM",
-          "mitigation": "Use parameterized queries"
+          "mitigation": "Use parameterized queries",
+          "source_locations": [
+            {
+              "file": "src/db.py",
+              "line_numbers": "42",
+              "symbol": "run_query",
+              "snippet": "cursor.execute(sql)"
+            }
+          ]
         },
         {
           "id": "T-002",
@@ -79,7 +87,8 @@
           "category": "Data",
           "severity": "HIGH",
           "description": "Risk description",
-          "remediation_plan": "Fix"
+          "remediation_plan": "Fix",
+          "related_threats": ["T-001"]
         }
       ]
     },

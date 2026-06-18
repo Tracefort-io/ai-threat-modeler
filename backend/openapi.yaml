@@ -503,6 +503,14 @@ paths:
                   maximum: 1000000
                   nullable: true
                   description: Maximum output tokens for Claude Code
+                threat_modeler_max_turns:
+                  type: integer
+                  minimum: 1
+                  maximum: 500
+                  description: Max agent turns for threat modeling passes
+                threat_adversary_enabled:
+                  type: boolean
+                  description: Run adversarial second pass to filter ungrounded threats
       responses:
         '200':
           description: Settings updated successfully
@@ -1215,9 +1223,34 @@ components:
           minimum: 1
           maximum: 1000000
           example: 32000
+        threat_modeler_max_turns:
+          type: integer
+          minimum: 1
+          maximum: 500
+          example: 100
+        threat_adversary_enabled:
+          type: boolean
+          example: true
         updated_at:
           type: string
           format: date-time
+
+    SourceLocation:
+      type: object
+      required:
+        - file
+      properties:
+        file:
+          type: string
+        line_numbers:
+          type: string
+          nullable: true
+        symbol:
+          type: string
+          nullable: true
+        snippet:
+          type: string
+          nullable: true
 
     DFDNode:
       type: object
@@ -1239,6 +1272,11 @@ components:
         description:
           type: string
           nullable: true
+        source_locations:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/SourceLocation'
 
     DFDDataFlow:
       type: object
@@ -1359,6 +1397,11 @@ components:
           nullable: true
           items:
             type: string
+        source_locations:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/SourceLocation'
 
     ThreatModel:
       type: object
@@ -1431,6 +1474,11 @@ components:
           nullable: true
           items:
             type: string
+        source_locations:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/SourceLocation'
 
     RiskRegistry:
       type: object

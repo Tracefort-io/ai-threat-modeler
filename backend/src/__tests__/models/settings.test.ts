@@ -31,6 +31,8 @@ const mockSettings = {
   openai_model: 'gpt-4.1',
   claude_code_max_output_tokens: 32000,
   github_max_archive_size_mb: 50,
+  threat_modeler_max_turns: 100,
+  threat_adversary_enabled: 1,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
 };
@@ -298,6 +300,34 @@ describe('SettingsModel', () => {
       });
 
       expect(() => SettingsModel.getAgentProviderConfig()).toThrow('OpenAI API key not configured');
+    });
+  });
+
+  describe('threat modeler settings', () => {
+    it('getThreatModelerMaxTurns defaults to 100', () => {
+      (db.prepare as jest.Mock).mockImplementation((query: string) => {
+        if (query.includes('threat_modeler_max_turns')) {
+          return { get: jest.fn(() => ({ threat_modeler_max_turns: null })) };
+        }
+        return mockGetStmt;
+      });
+      expect(SettingsModel.getThreatModelerMaxTurns()).toBe(100);
+    });
+
+    it('getThreatAdversaryEnabled defaults to true', () => {
+      (db.prepare as jest.Mock).mockImplementation((query: string) => {
+        if (query.includes('threat_adversary_enabled')) {
+          return { get: jest.fn(() => ({ threat_adversary_enabled: null })) };
+        }
+        return mockGetStmt;
+      });
+      expect(SettingsModel.getThreatAdversaryEnabled()).toBe(true);
+    });
+
+    it('update rejects invalid threat_modeler_max_turns', () => {
+      expect(() =>
+        SettingsModel.update({ threat_modeler_max_turns: 0 }),
+      ).toThrow('threat_modeler_max_turns must be between 1 and 500');
     });
   });
 });

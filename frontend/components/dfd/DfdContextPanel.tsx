@@ -80,6 +80,19 @@ export function DfdContextPanel({
             <div>{meta.description}</div>
           </div>
         )}
+        {meta?.source_locations && meta.source_locations.length > 0 && (
+          <div>
+            <div className="text-muted-foreground text-xs">Source files</div>
+            <ul className="list-disc pl-4 text-xs space-y-0.5">
+              {meta.source_locations.map((loc, i) => (
+                <li key={`${loc.file}-${i}`} className="font-mono">
+                  {loc.file}
+                  {loc.line_numbers ? `:${loc.line_numbers}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div>
           <div className="text-muted-foreground text-xs">Incoming flows ({incoming.length})</div>
           <ul className="list-disc pl-4 text-xs max-h-24 overflow-auto">

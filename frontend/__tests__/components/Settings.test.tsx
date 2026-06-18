@@ -59,6 +59,8 @@ describe('<Settings />', () => {
         openai_model: 'gpt-4.1',
         claude_code_max_output_tokens: 32000,
         github_max_archive_size_mb: 50,
+        threat_modeler_max_turns: 100,
+        threat_adversary_enabled: true,
         updated_at: 't',
       },
     })
@@ -182,6 +184,13 @@ describe('<Settings />', () => {
       await user.click(screen.getByRole('button', { name: /Reset to Defaults/i }))
 
       expect(await screen.findByText(/Settings reset to defaults/i)).toBeInTheDocument()
+    })
+
+    it('renders threat modeler max turns and adversary pass controls', async () => {
+      render(<Settings />)
+      await screen.findByLabelText('Claude Model')
+      expect(screen.getByLabelText(/Threat Modeler Max Turns/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Enable adversarial 2nd pass/i)).toBeInTheDocument()
     })
   })
 })

@@ -82,4 +82,13 @@ test.describe('Report page /reports/[jobId]', () => {
     await page.getByRole('tab', { name: /Data Flow Diagram/i }).click()
     await expect(page.getByTestId('dfd-canvas-root')).toBeVisible()
   })
+
+  test('Threat Model tab shows Location column and source file link', async ({ page }) => {
+    await stubThreatModelingApi(page)
+    await openReportPage(page)
+
+    await page.getByRole('tab', { name: /Threat Model/i }).click()
+    await expect(page.getByRole('columnheader', { name: 'Location' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'src/db.py:42' })).toBeVisible()
+  })
 })

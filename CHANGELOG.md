@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-17
+
+### Added
+
+- **Source-location traceability** — `SourceLocation` on threats, risks, and DFD nodes; Location columns in Threat Model and Risk Registry UI with expandable snippets and GitHub deep links; CSV export resolves risk locations from `related_threats` when absent on the risk.
+- **Threat modeler settings** — `threat_modeler_max_turns` (default 100) and `threat_adversary_enabled` (default true) in admin Settings, DB migrations, and OpenAPI.
+- **Adversarial second pass** — optional `threat_adversary` agent run after first-pass threat modeling; falls back to first-pass report on failure or if threat count increases.
+- **Tests** — unit coverage for `sourceLocation` helpers, settings, CSV export, `SourceLocationCell`, and Playwright e2e for Location column, DFD source files, and settings controls.
+- **Root, backend, and frontend package versions bumped to `2.1.0`.**
+
+### Changed
+
+- **OpenAPI** — `SourceLocation` schema; settings PUT/GET fields for max turns and adversary pass.
+
+### Dependencies
+
+- **Bump `appsec-agent` to `3.1.0`** for `source_locations` schema, configurable `max_turns`, and the `threat_adversary` filtering role.
+
 ## [2.0.2] - 2026-06-12
 
 ### Fixed

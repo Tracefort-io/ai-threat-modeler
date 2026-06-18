@@ -24,6 +24,8 @@ function toPublicSettings(settings: ReturnType<typeof SettingsModel.get>) {
     openai_model: settings.openai_model,
     claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
     github_max_archive_size_mb: settings.github_max_archive_size_mb,
+    threat_modeler_max_turns: settings.threat_modeler_max_turns,
+    threat_adversary_enabled: settings.threat_adversary_enabled,
     updated_at: settings.updated_at,
   };
 }
@@ -182,6 +184,8 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       openai_model,
       claude_code_max_output_tokens,
       github_max_archive_size_mb,
+      threat_modeler_max_turns,
+      threat_adversary_enabled,
     } = req.body;
     
     if (encryption_key !== undefined) {
@@ -199,7 +203,9 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       claude_model !== undefined ||
       openai_model !== undefined ||
       claude_code_max_output_tokens !== undefined ||
-      github_max_archive_size_mb !== undefined;
+      github_max_archive_size_mb !== undefined ||
+      threat_modeler_max_turns !== undefined ||
+      threat_adversary_enabled !== undefined;
 
     if (!hasUpdate) {
       return res.status(400).json({ error: 'At least one setting must be provided' });
@@ -256,6 +262,20 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: 'github_max_archive_size_mb must be a number between 1 and 5000' });
       }
     }
+
+    if (threat_modeler_max_turns !== undefined) {
+      if (
+        typeof threat_modeler_max_turns !== 'number' ||
+        threat_modeler_max_turns < 1 ||
+        threat_modeler_max_turns > 500
+      ) {
+        return res.status(400).json({ error: 'threat_modeler_max_turns must be a number between 1 and 500' });
+      }
+    }
+
+    if (threat_adversary_enabled !== undefined && typeof threat_adversary_enabled !== 'boolean') {
+      return res.status(400).json({ error: 'threat_adversary_enabled must be a boolean' });
+    }
     
     const updatedSettings = SettingsModel.update({
       anthropic_api_key,
@@ -267,6 +287,8 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       openai_model,
       claude_code_max_output_tokens,
       github_max_archive_size_mb,
+      threat_modeler_max_turns,
+      threat_adversary_enabled,
     });
     
     res.json({

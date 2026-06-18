@@ -75,6 +75,7 @@ const baseJob: ThreatModelingJob = {
         impact: 'i',
         likelihood: 'MEDIUM',
         mitigation: 'm',
+        source_locations: [{ file: 'src/a.ts', line_numbers: '10' }],
       },
       {
         id: 'T-2',
@@ -99,6 +100,7 @@ const baseJob: ThreatModelingJob = {
         severity: 'HIGH',
         description: 'desc',
         remediation_plan: 'fix',
+        related_threats: ['T-1'],
       },
     ],
   },
@@ -159,6 +161,16 @@ describe('<JobReport />', () => {
     render(<JobReport job={job} onToastSuccess={jest.fn()} onToastError={jest.fn()} />)
     await user.click(screen.getByRole('tab', { name: /Risk Registry/i }))
     expect(screen.getByText('Risk Registry not available.')).toBeInTheDocument()
+  })
+
+  it('shows Location column with source file on Threat Model tab', async () => {
+    const user = userEvent.setup()
+    render(
+      <JobReport job={baseJob} onToastSuccess={jest.fn()} onToastError={jest.fn()} />,
+    )
+    await user.click(screen.getByRole('tab', { name: /Threat Model/i }))
+    expect(screen.getByRole('columnheader', { name: 'Location' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'src/a.ts:10' })).toBeInTheDocument()
   })
 
   it('filters threats by component and shows Clear filter', async () => {

@@ -52,6 +52,8 @@ async function stubSettingsPage(page: Page): Promise<{ getLastPut: () => Record<
     openai_model: 'gpt-4.1',
     claude_code_max_output_tokens: 32000,
     github_max_archive_size_mb: 50,
+    threat_modeler_max_turns: 100,
+    threat_adversary_enabled: true,
     updated_at: new Date().toISOString(),
   }
 
@@ -142,5 +144,14 @@ test.describe('Settings — LLM Provider model selection (v2.0.1)', () => {
     await page.getByRole('button', { name: 'Reset to Defaults' }).click()
 
     await expect(page.getByText(/Settings reset to defaults/i)).toBeVisible()
+  })
+
+  test('shows threat modeler max turns and adversary pass settings', async ({ page }) => {
+    await stubSettingsPage(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    await expect(page.getByLabel(/Threat Modeler Max Turns/i)).toBeVisible()
+    await expect(page.getByLabel(/Enable adversarial 2nd pass/i)).toBeChecked()
   })
 })

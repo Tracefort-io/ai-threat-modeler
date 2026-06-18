@@ -571,6 +571,8 @@ export const api = {
     openai_model?: string;
     claude_code_max_output_tokens?: number | null;
     github_max_archive_size_mb?: number;
+    threat_modeler_max_turns?: number;
+    threat_adversary_enabled?: boolean;
   }) => {
     const response = await fetch(`${API_BASE_URL}/settings`, {
       method: 'PUT',

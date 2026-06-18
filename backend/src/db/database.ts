@@ -296,6 +296,14 @@ try {
     db.exec(`ALTER TABLE settings ADD COLUMN openai_model TEXT DEFAULT 'gpt-4.1'`);
     logger.info('✅ Added openai_model column to settings table');
   }
+  if (!columnNames.includes('threat_modeler_max_turns')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN threat_modeler_max_turns INTEGER DEFAULT 100`);
+    logger.info('✅ Added threat_modeler_max_turns column to settings table');
+  }
+  if (!columnNames.includes('threat_adversary_enabled')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN threat_adversary_enabled INTEGER DEFAULT 1`);
+    logger.info('✅ Added threat_adversary_enabled column to settings table');
+  }
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Settings migration warning', { error: message });
@@ -447,6 +455,8 @@ export interface Settings {
   openai_base_url: string | null;
   claude_model: string | null;
   openai_model: string | null;
+  threat_modeler_max_turns: number | null;
+  threat_adversary_enabled: number | null;
   created_at: string;
   updated_at: string;
 }

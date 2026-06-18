@@ -39,6 +39,7 @@ describe('DfdContextPanel', () => {
     expect(screen.getByText('API Server')).toBeInTheDocument()
     expect(screen.getByText(/Related threats/)).toBeInTheDocument()
     expect(screen.getByText(/T-001/)).toBeInTheDocument()
+    expect(screen.getByText(/src\/api\.py/)).toBeInTheDocument()
   })
 
   it('shows edge protocol and classification', () => {

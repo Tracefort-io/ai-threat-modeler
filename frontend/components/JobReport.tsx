@@ -5,9 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { FileSpreadsheet, FileText } from 'lucide-react'
 import { DfdTabContent } from '@/components/dfd/DfdTabContent'
+import { SourceLocationCell } from '@/components/SourceLocationCell'
 import type { DfdCanvasHandle } from '@/components/dfd/DfdCanvas'
 import type { ThreatModelingJob } from '@/types/threatModelingJob'
 import type { Risk, Threat } from '@/types/threatModel'
+import {
+  formatSourceLocations,
+  resolveRiskSourceLocations,
+} from '@/utils/sourceLocation'
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-800',
@@ -78,7 +83,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
     }
 
     try {
-      const columns: Array<keyof Risk> = [
+      const columns: Array<keyof Risk | 'source_locations'> = [
         'id',
         'title',
         'category',
@@ -94,6 +99,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
         'cost_estimate',
         'timeline',
         'related_threats',
+        'source_locations',
       ]
 
       const escapeCSV = (val: unknown): string => {
@@ -105,7 +111,21 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
       }
 
       const header = columns.map((c) => escapeCSV(c.replace(/_/g, ' ').toUpperCase())).join(',')
-      const rows = risks.map((risk) => columns.map((col) => escapeCSV(risk[col])).join(','))
+      const threats = job.threatModel?.threats
+      const rows = risks.map((risk) =>
+        columns
+          .map((col) => {
+            if (col === 'source_locations') {
+              return escapeCSV(
+                formatSourceLocations(
+                  resolveRiskSourceLocations(risk, threats),
+                ),
+              )
+            }
+            return escapeCSV(risk[col as keyof Risk])
+          })
+          .join(','),
+      )
 
       const BOM = '\uFEFF'
       const csvContent = BOM + [header, ...rows].join('\n')
@@ -220,13 +240,14 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
 
         autoTable(doc, {
           startY,
-          head: [['ID', 'Title', 'STRIDE', 'Severity', 'Likelihood', 'Impact', 'Mitigation']],
+          head: [['ID', 'Title', 'STRIDE', 'Severity', 'Likelihood', 'Location', 'Impact', 'Mitigation']],
           body: tm.threats.map((t) => [
             t.id,
             t.title,
             t.stride_category,
             t.severity,
             t.likelihood,
+            formatSourceLocations(t.source_locations) || '—',
             t.impact,
             t.mitigation,
           ]),
@@ -350,6 +371,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                     <th className="text-left p-2 font-medium">Impact</th>
                     <th className="text-left p-2 font-medium">Mitigation</th>
                     <th className="text-left p-2 font-medium">References</th>
+                    <th className="text-left p-2 font-medium">Location</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -381,6 +403,9 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                             {ref}
                           </span>
                         ))}
+                      </td>
+                      <td className="p-2 min-w-[140px]">
+                        <SourceLocationCell locations={threat.source_locations} job={job} />
                       </td>
                     </tr>
                   ))}
@@ -430,6 +455,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                     <th className="text-left p-2 font-medium">Effort</th>
                     <th className="text-left p-2 font-medium">Timeline</th>
                     <th className="text-left p-2 font-medium">Related Threats</th>
+                    <th className="text-left p-2 font-medium">Location</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -458,6 +484,12 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                             {tid}
                           </span>
                         ))}
+                      </td>
+                      <td className="p-2 min-w-[140px]">
+                        <SourceLocationCell
+                          locations={resolveRiskSourceLocations(risk, job.threatModel?.threats)}
+                          job={job}
+                        />
                       </td>
                     </tr>
                   ))}

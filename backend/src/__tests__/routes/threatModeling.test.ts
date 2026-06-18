@@ -687,5 +687,50 @@ describe('Threat Modeling Routes', () => {
       expect(response.body.reports[0]).toHaveProperty('reportPath');
     });
   });
+
+  describe('GET /api/threat-modeling/reports/:jobId/download', () => {
+    it('exports risk registry CSV with resolved source_locations from related threats', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const wrappedReport = require('../fixtures/dfd-wrapped-report.json') as {
+        threat_model_report: Record<string, unknown>;
+      };
+
+      const mockJob = {
+        id: 'job-csv',
+        user_id: 1,
+        repo_path: '/path/to/repo',
+        query: 'Test query',
+        status: 'completed',
+        report_path: '/reports/job-csv/report.json',
+        data_flow_diagram_path: '/reports/job-csv/report.json',
+        threat_model_path: '/reports/job-csv/report.json',
+        risk_registry_path: '/reports/job-csv/report.json',
+        error_message: null,
+        repo_name: 'test-repo',
+        git_branch: 'main',
+        git_commit: 'abc123',
+        execution_duration: 120,
+        api_cost: '$1.50',
+        created_at: new Date('2024-01-01').toISOString(),
+        updated_at: new Date('2024-01-02').toISOString(),
+        completed_at: new Date('2024-01-02').toISOString(),
+      };
+
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(wrappedReport));
+
+      const response = await request(app)
+        .get('/api/threat-modeling/reports/job-csv/download')
+        .query({ format: 'csv' });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/text\/csv/);
+      const body = response.text.replace(/^\uFEFF/, '');
+      expect(body).toContain('SOURCE LOCATIONS');
+      expect(body).toContain('src/db.py:42');
+      expect(body).not.toContain('[object Object]');
+    });
+  });
 });
 

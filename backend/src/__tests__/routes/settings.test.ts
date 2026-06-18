@@ -59,6 +59,8 @@ describe('Settings Routes', () => {
       anthropic_base_url: 'https://api.anthropic.com',
       claude_code_max_output_tokens: null,
       github_max_archive_size_mb: 50,
+      threat_modeler_max_turns: 100,
+      threat_adversary_enabled: true,
       updated_at: '2024-01-01T00:00:00Z',
     });
   });
@@ -400,6 +402,8 @@ describe('Settings Routes', () => {
       openai_model: 'gpt-4.1',
       claude_code_max_output_tokens: null,
       github_max_archive_size_mb: 50,
+      threat_modeler_max_turns: 100,
+      threat_adversary_enabled: true,
       updated_at: '2024-01-01T00:00:00Z',
     };
 
@@ -631,6 +635,55 @@ describe('Settings Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.settings.claude_code_max_output_tokens).toBe(75000);
+    });
+  });
+
+  describe('PUT /api/settings - threat modeler options', () => {
+    it('should update threat_modeler_max_turns and threat_adversary_enabled', async () => {
+      (SettingsModel.update as jest.Mock).mockReturnValue({
+        encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
+        anthropic_api_key: null,
+        anthropic_base_url: 'https://api.anthropic.com',
+        claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
+        threat_modeler_max_turns: 75,
+        threat_adversary_enabled: false,
+        updated_at: '2024-01-02T00:00:00Z',
+      });
+
+      const response = await request(app)
+        .put('/api/settings')
+        .send({
+          threat_modeler_max_turns: 75,
+          threat_adversary_enabled: false,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.settings.threat_modeler_max_turns).toBe(75);
+      expect(response.body.settings.threat_adversary_enabled).toBe(false);
+      expect(SettingsModel.update).toHaveBeenCalledWith({
+        threat_modeler_max_turns: 75,
+        threat_adversary_enabled: false,
+      });
+    });
+
+    it('should reject threat_modeler_max_turns outside 1-500', async () => {
+      const response = await request(app)
+        .put('/api/settings')
+        .send({ threat_modeler_max_turns: 501 });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/threat_modeler_max_turns/);
+    });
+
+    it('should reject non-boolean threat_adversary_enabled', async () => {
+      const response = await request(app)
+        .put('/api/settings')
+        .send({ threat_adversary_enabled: 'yes' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/threat_adversary_enabled/);
     });
   });
 });

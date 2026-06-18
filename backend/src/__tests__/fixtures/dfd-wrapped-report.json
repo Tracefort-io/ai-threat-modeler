@@ -11,7 +11,7 @@
       "description": "Test DFD",
       "nodes": [
         { "id": "ee-1", "name": "Web Browser", "type": "external_entity", "description": "User agent" },
-        { "id": "proc-1", "name": "API Server", "type": "process", "description": "Backend" }
+        { "id": "proc-1", "name": "API Server", "type": "process", "description": "Backend", "source_locations": [{ "file": "src/api.py" }] }
       ],
       "data_flows": [
         { "id": "f1", "source": "ee-1", "destination": "proc-1", "description": "HTTPS", "protocol": "HTTPS", "data_classification": "public" }
@@ -32,7 +32,15 @@
           "description": "SQLi",
           "impact": "Data loss",
           "likelihood": "MEDIUM",
-          "mitigation": "Fix"
+          "mitigation": "Fix",
+          "source_locations": [
+            {
+              "file": "src/db.py",
+              "line_numbers": "42",
+              "symbol": "run_query",
+              "snippet": "cursor.execute(sql)"
+            }
+          ]
         }
       ]
     },
@@ -45,7 +53,8 @@
           "category": "Data",
           "severity": "HIGH",
           "description": "d",
-          "remediation_plan": "Fix"
+          "remediation_plan": "Fix",
+          "related_threats": ["T-001"]
         }
       ]
     },

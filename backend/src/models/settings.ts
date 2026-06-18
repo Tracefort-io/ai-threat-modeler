@@ -27,6 +27,8 @@ export interface SettingsWithoutSensitive {
   openai_model: string;
   claude_code_max_output_tokens: number | null;
   github_max_archive_size_mb: number | null;
+  threat_modeler_max_turns: number | null;
+  threat_adversary_enabled: boolean;
   updated_at: string;
 }
 
@@ -103,6 +105,8 @@ export class SettingsModel {
       openai_model: settings.openai_model ?? 'gpt-4.1',
       claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
       github_max_archive_size_mb: settings.github_max_archive_size_mb ?? 50,
+      threat_modeler_max_turns: settings.threat_modeler_max_turns ?? 100,
+      threat_adversary_enabled: (settings.threat_adversary_enabled ?? 1) !== 0,
       updated_at: settings.updated_at,
     };
   }
@@ -128,6 +132,18 @@ export class SettingsModel {
     const stmt = db.prepare('SELECT github_max_archive_size_mb FROM settings WHERE id = 1');
     const row = stmt.get() as { github_max_archive_size_mb: number | null } | undefined;
     return row?.github_max_archive_size_mb ?? 50;
+  }
+
+  static getThreatModelerMaxTurns(): number {
+    const stmt = db.prepare('SELECT threat_modeler_max_turns FROM settings WHERE id = 1');
+    const row = stmt.get() as { threat_modeler_max_turns: number | null } | undefined;
+    return row?.threat_modeler_max_turns ?? 100;
+  }
+
+  static getThreatAdversaryEnabled(): boolean {
+    const stmt = db.prepare('SELECT threat_adversary_enabled FROM settings WHERE id = 1');
+    const row = stmt.get() as { threat_adversary_enabled: number | null } | undefined;
+    return (row?.threat_adversary_enabled ?? 1) !== 0;
   }
 
   private static reEncryptApiKeys(
@@ -307,6 +323,8 @@ export class SettingsModel {
     openai_model?: string;
     claude_code_max_output_tokens?: number | null;
     github_max_archive_size_mb?: number;
+    threat_modeler_max_turns?: number;
+    threat_adversary_enabled?: boolean;
   }): SettingsWithoutSensitive {
     const currentSettings = this.get(false);
     const oldEncryptionKey = currentSettings.encryption_key;
@@ -414,6 +432,31 @@ export class SettingsModel {
             updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
       `).run(updates.github_max_archive_size_mb);
+    }
+
+    if (updates.threat_modeler_max_turns !== undefined) {
+      if (
+        typeof updates.threat_modeler_max_turns !== 'number' ||
+        updates.threat_modeler_max_turns < 1 ||
+        updates.threat_modeler_max_turns > 500
+      ) {
+        throw new Error('threat_modeler_max_turns must be between 1 and 500');
+      }
+      db.prepare(`
+        UPDATE settings
+        SET threat_modeler_max_turns = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+      `).run(updates.threat_modeler_max_turns);
+    }
+
+    if (updates.threat_adversary_enabled !== undefined) {
+      db.prepare(`
+        UPDATE settings
+        SET threat_adversary_enabled = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+      `).run(updates.threat_adversary_enabled ? 1 : 0);
     }
     
     return this.get(

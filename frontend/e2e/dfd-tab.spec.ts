@@ -20,6 +20,8 @@ test.describe('DFD tab', () => {
     await page.getByTestId('dfd-node-proc-1').click()
     await expect(page.getByText('Related threats')).toBeVisible()
     await expect(page.getByText(/T-001/)).toBeVisible()
+    await expect(page.getByText('Source files')).toBeVisible()
+    await expect(page.getByText('src/api.py')).toBeVisible()
   })
 
   test('selecting a flow row shows edge details in context panel', async ({ page }) => {

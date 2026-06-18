@@ -7,7 +7,7 @@
 import { Router, Request, Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync, spawn, ChildProcess } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import archiver from 'archiver';
 import multer from 'multer';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
@@ -20,6 +20,13 @@ import { findAgentRunPath } from '../services/agentRunPath';
 import { buildAgentRunInvocation } from '../services/agentInvocation';
 import { extractZip } from '../services/zipExtract';
 import { listPopulatedContextFieldNames } from '../types/contextFields';
+import {
+  formatSourceLocations,
+  resolveRiskSourceLocations,
+  type SourceLocation,
+  type ThreatWithLocations,
+} from '../utils/sourceLocation';
+import type { AgentProviderConfig } from '../models/settings';
 import {
   awaitAgentChildExit,
   type AgentChildExitResult,
@@ -195,6 +202,116 @@ function detectRepoMetadata(repoDir: string, zipFileName?: string | null): { rep
   }
 
   return { repoName, gitBranch, gitCommit };
+}
+
+/**
+ * Run agent-run CLI from workDir (mutex-protected chdir).
+ */
+async function runAgentCli(options: {
+  agentRunPath: string;
+  workDir: string;
+  agentRunRepoName: string;
+  role: string;
+  providerConfig: AgentProviderConfig;
+  contextText: string;
+  jobId: string;
+  abortController: AbortController;
+  extraArgs?: string[];
+}): Promise<{ exitCode: number | null; capturedOutput: string }> {
+  const {
+    agentRunPath,
+    workDir,
+    agentRunRepoName,
+    role,
+    providerConfig,
+    contextText,
+    jobId,
+    abortController,
+    extraArgs = [],
+  } = options;
+
+  const releaseMutex = await ChdirMutex.acquire();
+  const originalCwd = process.cwd();
+  let capturedOutput = '';
+  let processExitCode: number | null = null;
+
+  try {
+    process.chdir(workDir);
+    const roleArgs = [
+      'node',
+      agentRunPath,
+      '-r',
+      role,
+      '-s',
+      `./${agentRunRepoName}`,
+      '-f',
+      'json',
+      '--max-turns',
+      String(SettingsModel.getThreatModelerMaxTurns()),
+      ...extraArgs,
+    ];
+    const { args: providerArgs, env } = buildAgentRunInvocation(providerConfig, []);
+    const agentRunCommand = [...roleArgs, ...providerArgs];
+    if (contextText.length > 0) {
+      agentRunCommand.push('-c', contextText);
+    }
+
+    logger.info(`🚀 Starting agent-run CLI (${role})...`);
+
+    const childProcess = spawn(agentRunCommand[0], agentRunCommand.slice(1), {
+      cwd: workDir,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    if (childProcess.stdout) {
+      childProcess.stdout.setEncoding('utf-8');
+      childProcess.stdout.on('data', (data: string) => {
+        capturedOutput += data;
+        logger.info(data);
+      });
+    }
+
+    if (childProcess.stderr) {
+      childProcess.stderr.setEncoding('utf-8');
+      childProcess.stderr.on('data', (data: string) => {
+        capturedOutput += data;
+        logger.error(data);
+      });
+    }
+
+    const onAbort = () => {
+      logger.info(`🛑 Killing agent-run process (${role}) for job ${jobId}...`);
+      childProcess.kill('SIGTERM');
+      setTimeout(() => {
+        if (!childProcess.killed) {
+          childProcess.kill('SIGKILL');
+        }
+      }, 5000);
+    };
+    abortController.signal.addEventListener('abort', onAbort);
+
+    try {
+      const exitResult = await awaitAgentChildExit(childProcess, jobId);
+      processExitCode = exitResult.exitCode;
+      if (exitResult.exitCode !== null && exitResult.exitCode !== 0) {
+        logger.warn(
+          `⚠️  agent-run (${role}) exited with code ${exitResult.exitCode}${exitResult.signal ? ` (signal: ${exitResult.signal})` : ''}`,
+        );
+      }
+    } finally {
+      abortController.signal.removeEventListener('abort', onAbort);
+    }
+  } finally {
+    try {
+      process.chdir(originalCwd);
+    } catch (chdirErr) {
+      logger.error('⚠️  Failed to restore working directory:', chdirErr);
+    }
+    releaseMutex();
+  }
+
+  return { exitCode: processExitCode, capturedOutput };
 }
 
 /**
@@ -454,115 +571,28 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
     
     // Track process exit code for error handling (check if reports were generated despite errors)
     let processExitCode: number | null = null;
-    let processError: Error | null = null;
-    
-    // Acquire mutex for chdir operation (ensures only one job changes directory at a time)
-    const releaseMutex = await ChdirMutex.acquire();
-    const originalCwd = process.cwd();
-    
+
     try {
-      // Change to workDir for agent execution
-      // agent-run will be called from workDir with -s ./repoName
-      process.chdir(workDir);
-      logger.info(`📂 Changed working directory to ${workDir} (mutex-protected)`);
-      
-      // Construct agent-run CLI command as array (safer for special characters)
-      // Format: node bin/agent-run -r threat_modeler -s ./repoName -k API_KEY -u API_URI
-      // Note: Query is loaded from built-in YAML config file, not passed via CLI flag
-      // We're in workDir, so use ./repoName as the source directory
-      const roleArgs = [
-        'node',
+      const firstRun = await runAgentCli({
         agentRunPath,
-        '-r', 'threat_modeler',
-        '-s', `./${agentRunRepoName}`,
-        '-f', 'json',
-      ];
-      const { args: providerArgs, env } = buildAgentRunInvocation(providerConfig, []);
-      const agentRunCommand = [...roleArgs, ...providerArgs];
-
-      // argv exposure: -c value is visible in process list (same as -k). Migrate to stdin/env when upstream supports it.
-      if (contextText.length > 0) {
-        agentRunCommand.push('-c', contextText);
-      }
-      
-      logger.info(`🚀 Starting agent-run CLI execution...`);
-      logger.info(
-        `   Command: node ${path.basename(agentRunPath)} -r threat_modeler -s ./${agentRunRepoName} --provider ${providerConfig.provider} [REDACTED]${contextText.length > 0 ? ' -c [REDACTED]' : ''}`,
-      );
-      logger.info(`   Note: Query will be loaded from built-in YAML config file for threat_modeler role`);
-      
-      // Execute the agent-run CLI command using spawn (non-blocking, async)
-      const childProcess = spawn(agentRunCommand[0], agentRunCommand.slice(1), {
-        cwd: workDir,
-        env,
-        stdio: ['ignore', 'pipe', 'pipe']
+        workDir,
+        agentRunRepoName,
+        role: 'threat_modeler',
+        providerConfig,
+        contextText,
+        jobId,
+        abortController,
       });
+      capturedOutput = firstRun.capturedOutput;
+      processExitCode = firstRun.exitCode;
 
-      if (childProcess.stdout) {
-        childProcess.stdout.setEncoding('utf-8');
-        childProcess.stdout.on('data', (data: string) => {
-          capturedOutput += data;
-          logger.info(data);
-        });
-      }
-
-      if (childProcess.stderr) {
-        childProcess.stderr.setEncoding('utf-8');
-        childProcess.stderr.on('data', (data: string) => {
-          capturedOutput += data;
-          logger.error(data);
-        });
-      }
-
-      const onAbort = () => {
-        logger.info(`🛑 Killing agent-run process for job ${jobId}...`);
-        childProcess.kill('SIGTERM');
-        // Give it a moment to gracefully shut down, then force kill
-        setTimeout(() => {
-          if (!childProcess.killed) {
-            childProcess.kill('SIGKILL');
-          }
-        }, 5000);
-      };
-      abortController.signal.addEventListener('abort', onAbort);
-
-      try {
-        // Use the exit-aware helper so we never hang on 'close' if the
-        // agent forks a grandchild (e.g. Claude Code) that inherits stdio.
-        const exitResult = await awaitAgentChildExit(childProcess, jobId);
-        processExitCode = exitResult.exitCode;
-        if (exitResult.exitCode !== null && exitResult.exitCode !== 0) {
-          logger.warn(
-            `⚠️  agent-run exited with code ${exitResult.exitCode}${exitResult.signal ? ` (signal: ${exitResult.signal})` : ''}`,
-          );
-          logger.warn(`   This may be a warning (e.g., token limit) but reports might still be generated`);
-        }
-        if (exitResult.forced) {
-          logger.warn(`   (resolved via post-exit grace; 'close' never fired — investigate stdio inheritance)`);
-        }
-      } catch (err) {
-        processError = err instanceof Error ? err : new Error(String(err));
-        throw processError;
-      } finally {
-        abortController.signal.removeEventListener('abort', onAbort);
-      }
-      
-      // Log warning if process exited with non-zero code
       if (processExitCode !== null && processExitCode !== 0) {
         logger.warn(`⚠️  agent-run completed with exit code ${processExitCode}`);
         logger.warn(`   Checking for generated reports despite the error...`);
       }
-      
-      // Restore working directory immediately after agent execution
-      process.chdir(originalCwd);
-      logger.info(`📂 Restored working directory to ${originalCwd}`);
-      
-      // Release mutex
-      releaseMutex();
-      
-      // Calculate execution duration
+
       const executionEndTime = Date.now();
-      const executionDuration = Math.round((executionEndTime - executionStartTime) / 1000); // Duration in seconds
+      const executionDuration = Math.round((executionEndTime - executionStartTime) / 1000);
       
       // Parse cost from captured output
       // Look for the last line containing "Cost: $X.XXXX"
@@ -583,18 +613,6 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       logger.info(`✅ Agent execution completed in ${executionDuration} seconds`);
       
     } catch (error) {
-      // Restore working directory on error
-      try {
-        process.chdir(originalCwd);
-        logger.info(`📂 Restored working directory to ${originalCwd} (after error)`);
-      } catch (chdirErr) {
-        logger.error(`⚠️  Failed to restore working directory on error:`, chdirErr);
-      }
-      
-      // Release mutex even on error
-      releaseMutex();
-      
-      // Calculate duration even if execution failed
       const executionEndTime = Date.now();
       const executionDuration = Math.round((executionEndTime - executionStartTime) / 1000);
       
@@ -696,10 +714,83 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       }
       throw parseErr;
     }
+
+    let finalReportPath = reportJsonPath;
+    const firstPassThreatCount =
+      reportData.threat_model_report?.metadata?.total_threats_identified ??
+      reportData.threat_model_report?.threat_model?.threats?.length ??
+      0;
+
+    if (SettingsModel.getThreatAdversaryEnabled()) {
+      checkCancellation();
+      const adversaryOutputPath = path.join(workDir, 'threat_model_adversary_report.json');
+      logger.info(`🔍 Running threat adversary second pass (input: ${reportJsonPath})`);
+
+      try {
+        const advRun = await runAgentCli({
+          agentRunPath,
+          workDir,
+          agentRunRepoName,
+          role: 'threat_adversary',
+          providerConfig,
+          contextText,
+          jobId,
+          abortController,
+          extraArgs: [
+            '--adversarial-context',
+            reportJsonPath,
+            '-o',
+            adversaryOutputPath,
+          ],
+        });
+        capturedOutput += advRun.capturedOutput;
+
+        if (fs.existsSync(adversaryOutputPath)) {
+          const advRaw = fs.readFileSync(adversaryOutputPath, 'utf-8');
+          const advData = JSON.parse(advRaw) as {
+            threat_model_report?: {
+              metadata?: { total_threats_identified?: number };
+              threat_model?: { threats?: unknown[] };
+            };
+          };
+          if (!advData.threat_model_report) {
+            throw new Error('Adversary report missing threat_model_report root key');
+          }
+          const filteredCount =
+            advData.threat_model_report.metadata?.total_threats_identified ??
+            advData.threat_model_report.threat_model?.threats?.length ??
+            0;
+          if (filteredCount > firstPassThreatCount) {
+            logger.warn(
+              `⚠️  Adversary pass increased threat count (${filteredCount} > ${firstPassThreatCount}); keeping first-pass report`,
+            );
+          } else {
+            finalReportPath = adversaryOutputPath;
+            reportData = advData;
+            logger.info(
+              `✅ Using adversary-filtered report (${filteredCount} threats, was ${firstPassThreatCount})`,
+            );
+          }
+        } else {
+          logger.warn('⚠️  Adversary pass produced no output file; keeping first-pass report');
+        }
+      } catch (advErr) {
+        const msg = advErr instanceof Error ? advErr.message : String(advErr);
+        logger.warn(`⚠️  Threat adversary pass failed; keeping first-pass report: ${msg}`);
+        try {
+          ThreatModelingJobModel.updateErrorMessage(
+            jobId,
+            `Adversary pass failed (first-pass report retained): ${msg}`,
+          );
+        } catch {
+          // job may have been deleted
+        }
+      }
+    }
     
     // Copy the single JSON report to jobReportDir
     const destReportPath = path.join(jobReportDir, 'threat_model_report.json');
-    fs.copyFileSync(reportJsonPath, destReportPath);
+    fs.copyFileSync(finalReportPath, destReportPath);
     logger.info(`✅ Copied report to ${jobReportDir}`);
     
     // Check cancellation before updating job
@@ -1181,8 +1272,11 @@ router.get('/reports/:jobId/download', authenticateToken, (req: AuthRequest, res
         'id', 'title', 'category', 'stride_category', 'severity',
         'current_risk_score', 'residual_risk_score', 'description',
         'affected_components', 'business_impact', 'remediation_plan',
-        'effort_estimate', 'cost_estimate', 'timeline', 'related_threats'
+        'effort_estimate', 'cost_estimate', 'timeline', 'related_threats',
+        'source_locations',
       ];
+
+      const threats = report.threat_model_report?.threat_model?.threats ?? [];
       
       const escapeCSV = (val: unknown): string => {
         const str = Array.isArray(val) ? val.join(', ') : String(val ?? '');
@@ -1191,11 +1285,29 @@ router.get('/reports/:jobId/download', authenticateToken, (req: AuthRequest, res
         }
         return str;
       };
+
+      const formatRiskRow = (risk: Record<string, unknown>): string => {
+        const resolvedLocs = formatSourceLocations(
+          resolveRiskSourceLocations(
+            {
+              source_locations: risk.source_locations as SourceLocation[] | undefined,
+              related_threats: risk.related_threats as string[] | undefined,
+            },
+            threats as ThreatWithLocations[],
+          ),
+        );
+        return columns
+          .map((col) => {
+            if (col === 'source_locations') {
+              return escapeCSV(resolvedLocs);
+            }
+            return escapeCSV(risk[col]);
+          })
+          .join(',');
+      };
       
       const header = columns.map(c => escapeCSV(c.replace(/_/g, ' ').toUpperCase())).join(',');
-      const rows = risks.map((risk: Record<string, unknown>) =>
-        columns.map(col => escapeCSV(risk[col])).join(',')
-      );
+      const rows = risks.map((risk: Record<string, unknown>) => formatRiskRow(risk));
       
       const BOM = '\uFEFF';
       const csvContent = BOM + [header, ...rows].join('\n');

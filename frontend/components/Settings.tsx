@@ -48,6 +48,8 @@ export function Settings() {
   const [loadingOpenaiModels, setLoadingOpenaiModels] = useState(false)
   const [claudeCodeMaxOutputTokens, setClaudeCodeMaxOutputTokens] = useState<number | null>(32000)
   const [githubMaxArchiveSizeMb, setGithubMaxArchiveSizeMb] = useState<number>(50)
+  const [threatModelerMaxTurns, setThreatModelerMaxTurns] = useState<number>(100)
+  const [threatAdversaryEnabled, setThreatAdversaryEnabled] = useState<boolean>(true)
   const [timezone, setTimezone] = useState('UTC')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -87,6 +89,8 @@ export function Settings() {
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
+        setThreatModelerMaxTurns(settings.threat_modeler_max_turns ?? 100)
+        setThreatAdversaryEnabled(settings.threat_adversary_enabled ?? true)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
 
@@ -162,6 +166,8 @@ export function Settings() {
           openai_model?: string
           claude_code_max_output_tokens?: number | null
           github_max_archive_size_mb?: number
+          threat_modeler_max_turns?: number
+          threat_adversary_enabled?: boolean
         } = {}
 
         updates.llm_provider = llmProvider
@@ -188,6 +194,10 @@ export function Settings() {
         if (typeof githubMaxArchiveSizeMb === 'number' && githubMaxArchiveSizeMb > 0) {
           updates.github_max_archive_size_mb = githubMaxArchiveSizeMb
         }
+        if (typeof threatModelerMaxTurns === 'number' && threatModelerMaxTurns > 0) {
+          updates.threat_modeler_max_turns = threatModelerMaxTurns
+        }
+        updates.threat_adversary_enabled = threatAdversaryEnabled
 
         if (updates.anthropic_api_key) {
           setValidating(true)
@@ -246,6 +256,8 @@ export function Settings() {
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
+        setThreatModelerMaxTurns(settings.threat_modeler_max_turns ?? 100)
+        setThreatAdversaryEnabled(settings.threat_adversary_enabled ?? true)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
 
@@ -675,6 +687,38 @@ export function Settings() {
                   Loaded from your OpenAI account. Save an API key first, then Refresh. Required when using the OpenAI provider.
                 </p>
               </div>
+            </div>
+          </div>
+
+          <div className="border-t pt-4 space-y-4">
+            <h3 className="text-lg font-semibold">Threat Modeling</h3>
+            <div className="space-y-2">
+              <label htmlFor="threat-modeler-max-turns" className="text-sm font-medium">
+                Threat Modeler Max Turns
+              </label>
+              <Input
+                id="threat-modeler-max-turns"
+                type="number"
+                min={1}
+                max={500}
+                value={threatModelerMaxTurns}
+                onChange={(e) => setThreatModelerMaxTurns(parseInt(e.target.value, 10) || 100)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Agent tool-use budget for threat modeling (and adversary pass when enabled). Default 100.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="threat-adversary-enabled"
+                type="checkbox"
+                checked={threatAdversaryEnabled}
+                onChange={(e) => setThreatAdversaryEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              <label htmlFor="threat-adversary-enabled" className="text-sm font-medium">
+                Enable adversarial 2nd pass (filters ungrounded threats)
+              </label>
             </div>
           </div>
         </CardContent>
