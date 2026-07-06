@@ -71,7 +71,9 @@ describe('Settings Routes', () => {
         encryption_key: 'test-encryption-key-12345678901234567890',
         encryption_key_configured: true,
         anthropic_api_key: 'encrypted-key-value',
+        anthropic_api_key_configured: true,
         anthropic_base_url: 'https://api.anthropic.com',
+        openai_api_key_configured: false,
         claude_code_max_output_tokens: 50000,
         github_max_archive_size_mb: 50,
         updated_at: '2024-01-01T00:00:00Z',
@@ -109,6 +111,30 @@ describe('Settings Routes', () => {
       expect(response.body.settings.anthropic_api_key).toBeNull();
       expect(response.body.settings.claude_code_max_output_tokens).toBeNull();
       expect(response.body.settings.encryption_key).toBeUndefined();
+    });
+
+    it('masks a configured OpenAI key as ***ENCRYPTED*** without decrypting it', async () => {
+      // GET uses SettingsModel.get(false), which leaves the decrypted key fields
+      // null. The masked marker must come from the *_configured flags instead.
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
+        anthropic_api_key: null,
+        anthropic_api_key_configured: false,
+        anthropic_base_url: 'https://api.anthropic.com',
+        openai_api_key: null,
+        openai_api_key_configured: true,
+        openai_base_url: 'https://api.openai.com/v1',
+        claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
+        updated_at: '2024-01-01T00:00:00Z',
+      });
+
+      const response = await request(app).get('/api/settings');
+
+      expect(response.status).toBe(200);
+      expect(response.body.settings.openai_api_key).toBe('***ENCRYPTED***');
+      expect(response.body.settings.anthropic_api_key).toBeNull();
     });
 
     it('should return 403 for non-Admin user', async () => {

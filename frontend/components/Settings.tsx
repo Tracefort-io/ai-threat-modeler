@@ -37,8 +37,12 @@ export function Settings() {
   const [encryptionKeyConfigured, setEncryptionKeyConfigured] = useState(false)
   const [llmProvider, setLlmProvider] = useState<'claude' | 'codex'>('claude')
   const [anthropicApiKey, setAnthropicApiKey] = useState('')
+  const [anthropicKeyConfigured, setAnthropicKeyConfigured] = useState(false)
+  const [testingAnthropicKey, setTestingAnthropicKey] = useState(false)
   const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('')
   const [openaiApiKey, setOpenaiApiKey] = useState('')
+  const [openaiKeyConfigured, setOpenaiKeyConfigured] = useState(false)
+  const [testingOpenaiKey, setTestingOpenaiKey] = useState(false)
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.openai.com/v1')
   const [claudeModel, setClaudeModel] = useState('')
   const [openaiModel, setOpenaiModel] = useState('gpt-4.1')
@@ -62,7 +66,6 @@ export function Settings() {
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenStatus | null>(null)
   const [githubTokenInput, setGithubTokenInput] = useState('')
   const [githubTokenName, setGithubTokenName] = useState('')
-  const [savingGithubToken, setSavingGithubToken] = useState(false)
   const [testingGithubToken, setTestingGithubToken] = useState(false)
 
   useEffect(() => {
@@ -84,7 +87,9 @@ export function Settings() {
         setEncryptionKeyConfigured(!!settings.encryption_key_configured)
         setLlmProvider(settings.llm_provider === 'codex' ? 'codex' : 'claude')
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
+        setAnthropicKeyConfigured(!!settings.anthropic_api_key)
         setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
+        setOpenaiKeyConfigured(!!settings.openai_api_key)
         setClaudeModel(settings.claude_model ?? '')
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
@@ -208,13 +213,13 @@ export function Settings() {
               'claude',
             )
             if (validationResult.valid) {
-              success(validationResult.message || 'Anthropic API key is valid and working correctly', 0)
+              success(validationResult.message || 'Anthropic API key is valid and working correctly')
             } else {
-              showError(validationResult.error || 'Anthropic API key validation failed', 0)
+              showError(validationResult.error || 'Anthropic API key validation failed')
             }
           } catch (validationErr) {
             const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
-            showError(`Anthropic API key validation error: ${errorMsg}`, 0)
+            showError(`Anthropic API key validation error: ${errorMsg}`)
           } finally {
             setValidating(false)
           }
@@ -229,19 +234,32 @@ export function Settings() {
               'codex',
             )
             if (validationResult.valid) {
-              success(validationResult.message || 'OpenAI API key is valid and working correctly', 0)
+              success(validationResult.message || 'OpenAI API key is valid and working correctly')
             } else {
-              showError(validationResult.error || 'OpenAI API key validation failed', 0)
+              showError(validationResult.error || 'OpenAI API key validation failed')
             }
           } catch (validationErr) {
             const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
-            showError(`OpenAI API key validation error: ${errorMsg}`, 0)
+            showError(`OpenAI API key validation error: ${errorMsg}`)
           } finally {
             setValidating(false)
           }
         }
 
         await api.updateSettings(updates)
+
+        // The GitHub PAT lives behind a separate endpoint but is persisted by the
+        // same bottom "Save Configuration" button for a consistent single-save UX.
+        if (githubTokenInput.trim().length > 0) {
+          const tokenRes = await api.setGitHubToken(
+            githubTokenInput.trim(),
+            githubTokenName.trim() || undefined,
+          )
+          setGithubTokenStatus(tokenRes.token ?? null)
+          setGithubTokenInput('')
+          setGithubTokenName('')
+        }
+
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
         success('Configuration saved successfully')
@@ -251,7 +269,9 @@ export function Settings() {
         setEncryptionKeyConfigured(!!settings.encryption_key_configured)
         setLlmProvider(settings.llm_provider === 'codex' ? 'codex' : 'claude')
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
+        setAnthropicKeyConfigured(!!settings.anthropic_api_key)
         setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
+        setOpenaiKeyConfigured(!!settings.openai_api_key)
         setClaudeModel(settings.claude_model ?? '')
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
@@ -305,53 +325,73 @@ export function Settings() {
     }
   }
 
-  const handleSaveGithubToken = async () => {
-    if (!githubTokenInput.trim()) {
-      showError('Enter a GitHub PAT')
-      return
-    }
-    setSavingGithubToken(true)
+  const handleTestAnthropicKey = async () => {
+    setTestingAnthropicKey(true)
     try {
-      const res = await api.setGitHubToken(githubTokenInput.trim(), githubTokenName.trim() || undefined)
-      setGithubTokenStatus(res.token ?? null)
-      setGithubTokenInput('')
-      setGithubTokenName('')
-      success(`GitHub PAT saved${res.githubLogin ? ` for ${res.githubLogin}` : ''}`)
+      const typedKey = anthropicApiKey.trim()
+      if (typedKey.length > 0) {
+        const result = await api.validateApiKey(typedKey, anthropicBaseUrl || undefined, 'claude')
+        if (result.valid) {
+          success(result.message || 'Anthropic API key is valid and working correctly')
+        } else {
+          showError(result.error || 'Anthropic API key validation failed')
+        }
+      } else if (anthropicKeyConfigured) {
+        // No new key typed: exercise the stored key by listing models.
+        await api.getModels('claude')
+        success('Saved Anthropic API key is valid and working correctly')
+      } else {
+        showError('Enter an Anthropic API key to test, or save one first')
+      }
     } catch (err: unknown) {
-      showError(err instanceof Error ? err.message : 'Failed to save GitHub PAT')
+      showError(err instanceof Error ? err.message : 'Failed to test Anthropic API key')
     } finally {
-      setSavingGithubToken(false)
+      setTestingAnthropicKey(false)
     }
   }
 
-  const handleDeleteGithubToken = async () => {
-    if (!window.confirm('Delete your stored GitHub PAT? You will need to re-enter it to access private repos.')) {
-      return
-    }
+  const handleTestOpenaiKey = async () => {
+    setTestingOpenaiKey(true)
     try {
-      await api.deleteGitHubToken()
-      setGithubTokenStatus({ exists: false, name: null, createdAt: null, updatedAt: null, lastUsedAt: null })
-      success('GitHub PAT deleted')
+      const typedKey = openaiApiKey.trim()
+      if (typedKey.length > 0) {
+        const result = await api.validateApiKey(typedKey, openaiBaseUrl || undefined, 'codex')
+        if (result.valid) {
+          success(result.message || 'OpenAI API key is valid and working correctly')
+        } else {
+          showError(result.error || 'OpenAI API key validation failed')
+        }
+      } else if (openaiKeyConfigured) {
+        // No new key typed: exercise the stored key by listing models.
+        await api.getModels('codex')
+        success('Saved OpenAI API key is valid and working correctly')
+      } else {
+        showError('Enter an OpenAI API key to test, or save one first')
+      }
     } catch (err: unknown) {
-      showError(err instanceof Error ? err.message : 'Failed to delete GitHub PAT')
+      showError(err instanceof Error ? err.message : 'Failed to test OpenAI API key')
+    } finally {
+      setTestingOpenaiKey(false)
     }
   }
 
   const handleTestGithubToken = async () => {
-    if (!githubTokenInput.trim()) {
-      showError('Enter a token to test')
-      return
-    }
     setTestingGithubToken(true)
     try {
-      const res = await api.validateGitHubToken(githubTokenInput.trim())
+      const typedToken = githubTokenInput.trim()
+      if (typedToken.length === 0 && !githubTokenStatus?.exists) {
+        showError('Enter a GitHub PAT to test, or save one first')
+        return
+      }
+      const res = await api.validateGitHubToken(typedToken.length > 0 ? typedToken : undefined)
       if (res.valid) {
-        success(`Token is valid${res.login ? ` (login: ${res.login})` : ''}`)
+        const prefix = typedToken.length > 0 ? 'GitHub PAT' : 'Saved GitHub PAT'
+        success(`${prefix} is valid${res.login ? ` (login: ${res.login})` : ''}`)
       } else {
-        showError(res.error || 'Token validation failed')
+        showError(res.error || 'GitHub PAT validation failed')
       }
     } catch (err: unknown) {
-      showError(err instanceof Error ? err.message : 'Failed to validate token')
+      showError(err instanceof Error ? err.message : 'Failed to test GitHub PAT')
     } finally {
       setTestingGithubToken(false)
     }
@@ -539,13 +579,43 @@ export function Settings() {
             </p>
           </div>
 
+          {llmProvider === 'claude' && (
           <div>
             <h3 className="text-lg font-semibold mb-4">Anthropic API Configuration</h3>
             <div className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="anthropic-api-key" className="text-sm font-medium">
-                  Anthropic API Key
-                </label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="anthropic-api-key" className="text-sm font-medium">
+                    Anthropic API Key
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label="Test Anthropic API key"
+                    onClick={handleTestAnthropicKey}
+                    disabled={testingAnthropicKey}
+                  >
+                    {testingAnthropicKey ? 'Testing...' : 'Test'}
+                  </Button>
+                </div>
+                {anthropicKeyConfigured ? (
+                  <span
+                    data-testid="anthropic-key-status-configured"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
+                    Configured (encrypted at rest)
+                  </span>
+                ) : (
+                  <span
+                    data-testid="anthropic-key-status-missing"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+                    Not configured
+                  </span>
+                )}
                 <Input
                   id="anthropic-api-key"
                   type="password"
@@ -555,6 +625,7 @@ export function Settings() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Encrypted at rest. Leave empty to keep current value.
+                  Test checks the entered key, or the saved key if the field is blank.
                 </p>
               </div>
 
@@ -624,13 +695,45 @@ export function Settings() {
             </div>
           </div>
 
+          )}
+
+          {llmProvider === 'codex' && (
           <div>
             <h3 className="text-lg font-semibold mb-4">OpenAI API Configuration</h3>
             <div className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="openai-api-key" className="text-sm font-medium">
-                  OpenAI API Key
-                </label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="openai-api-key" className="text-sm font-medium">
+                    OpenAI API Key
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label="Test OpenAI API key"
+                    onClick={handleTestOpenaiKey}
+                    disabled={testingOpenaiKey}
+                  >
+                    {testingOpenaiKey ? 'Testing...' : 'Test'}
+                  </Button>
+                </div>
+                {openaiKeyConfigured ? (
+                  <span
+                    data-testid="openai-key-status-configured"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
+                    Configured (encrypted at rest)
+                  </span>
+                ) : (
+                  <span
+                    data-testid="openai-key-status-missing"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+                    Not configured
+                  </span>
+                )}
                 <Input
                   id="openai-api-key"
                   type="password"
@@ -640,6 +743,7 @@ export function Settings() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Used when Active Provider is OpenAI (Codex). Leave empty to keep current value.
+                  Test checks the entered key, or the saved key if the field is blank.
                 </p>
               </div>
 
@@ -689,6 +793,7 @@ export function Settings() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="border-t pt-4 space-y-4">
             <h3 className="text-lg font-semibold">Threat Modeling</h3>
@@ -746,12 +851,31 @@ export function Settings() {
                   {githubTokenStatus.lastUsedAt ? ` • Last used ${githubTokenStatus.lastUsedAt}` : ' • Never used'}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleDeleteGithubToken}>
-                Remove
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Test GitHub PAT"
+                onClick={handleTestGithubToken}
+                disabled={testingGithubToken}
+              >
+                {testingGithubToken ? 'Testing...' : 'Test'}
               </Button>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No PAT configured — public repos only.</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">No PAT configured — public repos only.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Test GitHub PAT"
+                onClick={handleTestGithubToken}
+                disabled={testingGithubToken}
+              >
+                {testingGithubToken ? 'Testing...' : 'Test'}
+              </Button>
+            </div>
           )}
           <div className="space-y-2">
             <label htmlFor="github-token-name" className="text-sm font-medium">Token name (optional)</label>
@@ -774,15 +898,9 @@ export function Settings() {
             />
             <p className="text-xs text-muted-foreground">
               Required scopes: <code>repo</code> (private) or <code>public_repo</code>.
+              Test checks the entered token, or the saved token if the field is blank.
+              Saved with the <span className="font-medium">Save Configuration</span> button at the bottom.
             </p>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={handleSaveGithubToken} disabled={savingGithubToken}>
-              {savingGithubToken ? 'Saving...' : 'Save PAT'}
-            </Button>
-            <Button variant="outline" onClick={handleTestGithubToken} disabled={testingGithubToken}>
-              {testingGithubToken ? 'Testing...' : 'Test connection'}
-            </Button>
           </div>
         </CardContent>
       </Card>

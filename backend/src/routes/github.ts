@@ -154,14 +154,18 @@ router.delete('/token', authenticateToken, (req: AuthRequest, res: Response) => 
 router.post('/token/validate', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { token } = req.body ?? {};
-    if (!token || typeof token !== 'string' || token.trim().length === 0) {
-      return res.status(400).json({ valid: false, error: 'token is required' });
+    const provided = typeof token === 'string' ? token.trim() : '';
+    // Fall back to the saved token when none is provided, so the UI can test the
+    // stored PAT without re-entering it (mirrors the model-provider Test buttons).
+    const effectiveToken = provided.length > 0 ? provided : GitHubTokenModel.getDecrypted(req.userId!);
+    if (!effectiveToken) {
+      return res.status(400).json({ valid: false, error: 'No token provided and no saved token to test.' });
     }
     let ghResponse: globalThis.Response;
     try {
       ghResponse = await fetch(`${GITHUB_API_BASE}/user`, {
         method: 'GET',
-        headers: githubAuthHeaders(token),
+        headers: githubAuthHeaders(effectiveToken),
       });
     } catch (err) {
       logger.warn('github.token.validate: network error', { error: err });

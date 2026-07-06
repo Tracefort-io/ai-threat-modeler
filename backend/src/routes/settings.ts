@@ -15,9 +15,9 @@ const router = Router();
 function toPublicSettings(settings: ReturnType<typeof SettingsModel.get>) {
   return {
     encryption_key_configured: settings.encryption_key_configured,
-    anthropic_api_key: settings.anthropic_api_key ? '***ENCRYPTED***' : null,
+    anthropic_api_key: settings.anthropic_api_key_configured ? '***ENCRYPTED***' : null,
     anthropic_base_url: settings.anthropic_base_url,
-    openai_api_key: settings.openai_api_key ? '***ENCRYPTED***' : null,
+    openai_api_key: settings.openai_api_key_configured ? '***ENCRYPTED***' : null,
     openai_base_url: settings.openai_base_url,
     llm_provider: settings.llm_provider,
     claude_model: settings.claude_model,

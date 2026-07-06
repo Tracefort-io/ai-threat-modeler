@@ -19,8 +19,10 @@ export interface SettingsWithoutSensitive {
   encryption_key: string; // Internal use only; never include in API responses
   encryption_key_configured: boolean; // Safe for API responses
   anthropic_api_key: string | null; // Decrypted API key (only when needed)
+  anthropic_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
   anthropic_base_url: string;
   openai_api_key: string | null; // Decrypted API key (only when needed)
+  openai_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
   openai_base_url: string;
   llm_provider: LlmProvider;
   claude_model: string | null;
@@ -97,8 +99,10 @@ export class SettingsModel {
       encryption_key: settings.encryption_key,
       encryption_key_configured: !!settings.encryption_key && settings.encryption_key.length >= 32,
       anthropic_api_key: decryptedAnthropicKey,
+      anthropic_api_key_configured: !!settings.anthropic_api_key,
       anthropic_base_url: settings.anthropic_base_url,
       openai_api_key: decryptedOpenAiKey,
+      openai_api_key_configured: !!settings.openai_api_key,
       openai_base_url: settings.openai_base_url ?? 'https://api.openai.com/v1',
       llm_provider: normalizeLlmProvider(settings.llm_provider),
       claude_model: settings.claude_model,

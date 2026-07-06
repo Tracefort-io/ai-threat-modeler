@@ -359,11 +359,11 @@ export const api = {
     return response.json();
   },
 
-  validateGitHubToken: async (token: string) => {
+  validateGitHubToken: async (token?: string) => {
     const response = await fetch(`${API_BASE_URL}/github/token/validate`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ token }),
+      body: JSON.stringify(token ? { token } : {}),
     });
     return response.json();
   },

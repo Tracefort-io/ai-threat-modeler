@@ -66,7 +66,7 @@ test.describe('Report page /reports/[jobId]', () => {
 
     await page.getByTestId('report-back-button').click()
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByText('Threat Modeling Jobs')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Threat Modeling Jobs' })).toBeVisible()
   })
 
   test('tab switching works inside the report', async ({ page }) => {

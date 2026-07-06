@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-06
+
+### Added
+
+- **API key "Test" buttons** — the Anthropic and OpenAI keys each get an explicit *configured / not configured* status and a **Test** button. Test validates a freshly typed key, or exercises the stored key by listing models when the field is left blank.
+- **Two-level LLM Provider UI** — Settings now shows only the settings for the currently selected provider (Claude *or* OpenAI), keeping the screen focused.
+- **Unified "Save Configuration"** — the GitHub PAT is now persisted by the single bottom Save button; the separate per-card *Save PAT* and *Remove* buttons are gone, and a PAT **Test** button sits next to the configured status (validates the entered token, or the saved token when the field is blank).
+- **Tests** — backend coverage for the saved-PAT validate fallback and OpenAI key masking; frontend/Jest coverage for the Anthropic/OpenAI key status + Test buttons and the single-save PAT flow; Playwright e2e for the new Test buttons and provider-scoped Settings. Distinct `aria-label`s disambiguate the three Test buttons.
+- **Beginner-friendly documentation** — README rewritten as a concise landing page, with detailed guides split into `docs/` (getting-started, github-import, settings, troubleshooting, features, deployment) plus a docs index.
+- **Root, backend, and frontend package versions bumped to `2.2.0`.**
+
+### Fixed
+
+- **API key status no longer shows "Not configured" after saving a valid key.** `GET /api/settings` masks keys from new `anthropic_api_key_configured` / `openai_api_key_configured` flags instead of relying on decrypted values that `SettingsModel.get(false)` never populates.
+- **GitHub PAT validation falls back to the saved token.** `POST /api/github/token/validate` now tests the stored PAT when the request body has no token, so the UI can validate a saved token without re-entering it.
+- **Flaky Playwright report-page test** — targets the *Threat Modeling Jobs* heading by role to avoid a strict-mode collision with empty-state text.
+- **Auto-dismissing flash messages** — Settings toasts no longer pass `duration: 0`, so all flash messages clear on the default timeout.
+- **Broken README links** — replaced dead `DOCKER_DEPLOYMENT.md` / `backend/API_DOCUMENTATION.md` references with the new `docs/deployment.md` and the live OpenAPI spec.
+
+### Dependencies
+
+- **Bump `appsec-agent` to `3.2.3`** — dynamic ESM import of `@openai/codex-sdk` (fixes `ERR_PACKAGE_PATH_NOT_EXPORTED` under the CommonJS build) and a strict JSON-schema normalizer for OpenAI Structured Outputs, resolving the `invalid_json_schema` / "Codex Exec exited with code 1" failures on the OpenAI Codex provider. Synced across root and backend manifests.
+
 ## [2.1.0] - 2026-06-17
 
 ### Added

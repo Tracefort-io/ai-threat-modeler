@@ -76,39 +76,56 @@ describe('<Settings />', () => {
     expect(screen.queryByLabelText(/^Encryption Key$/)).not.toBeInTheDocument()
   })
 
-  it('renders the GitHub PAT card and shows the "no PAT" empty state', async () => {
+  it('renders the GitHub PAT card without a card-level save button', async () => {
     render(<Settings />)
     await screen.findByText(/No PAT configured/i)
     expect(screen.getByText(/No PAT configured/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Save PAT/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Test connection/i })).toBeInTheDocument()
+    // The PAT is saved via the bottom "Save Configuration" button now.
+    expect(screen.queryByRole('button', { name: /Save PAT/i })).not.toBeInTheDocument()
+    // Inline GitHub PAT "Test" button is present (aria-labelled for a11y).
+    expect(screen.getByRole('button', { name: 'Test GitHub PAT' })).toBeInTheDocument()
   })
 
-  it('disables Save PAT path with empty input', async () => {
-    ;(api.setGitHubToken as jest.Mock).mockResolvedValue({
-      token: { exists: true, name: null, createdAt: 't', updatedAt: 't', lastUsedAt: null },
-    })
+  it('does not call setGitHubToken from the global save when the PAT field is empty', async () => {
+    ;(api.updateSettings as jest.Mock).mockResolvedValue({ status: 'success' })
     const user = userEvent.setup()
     render(<Settings />)
-    const saveBtn = await screen.findByRole('button', { name: /Save PAT/i })
-    // Empty input should not call the API
-    await user.click(saveBtn)
+    await screen.findByText(/No PAT configured/i)
+
+    await user.click(screen.getByRole('button', { name: /Save Configuration/i }))
+
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalled())
     expect(api.setGitHubToken).not.toHaveBeenCalled()
   })
 
-  it('shows existing PAT and allows removal', async () => {
+  it('saves a typed PAT through the global Save Configuration button', async () => {
+    ;(api.updateSettings as jest.Mock).mockResolvedValue({ status: 'success' })
+    ;(api.setGitHubToken as jest.Mock).mockResolvedValue({
+      token: { exists: true, name: 'mine', createdAt: 't', updatedAt: 't', lastUsedAt: null },
+      githubLogin: 'octocat',
+    })
+    const user = userEvent.setup()
+    render(<Settings />)
+    await screen.findByText(/No PAT configured/i)
+
+    await user.type(screen.getByLabelText(/Token name/i), 'mine')
+    await user.type(screen.getByLabelText(/Personal Access Token/i), 'ghp_abc123')
+    await user.click(screen.getByRole('button', { name: /Save Configuration/i }))
+
+    await waitFor(() => expect(api.setGitHubToken).toHaveBeenCalledWith('ghp_abc123', 'mine'))
+  })
+
+  it('shows a configured PAT with a Test button and no Remove button', async () => {
     ;(api.getGitHubTokenStatus as jest.Mock).mockResolvedValue({
       token: {
         exists: true, name: 'mine',
         createdAt: '2026-05-09T12:00:00Z', updatedAt: '2026-05-09T12:00:00Z', lastUsedAt: null,
       },
     })
-    ;(api.deleteGitHubToken as jest.Mock).mockResolvedValue({ status: 'success' })
-    window.confirm = jest.fn(() => true)
     render(<Settings />)
     await waitFor(() => screen.getByText(/PAT configured \(mine\)/i))
-    fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
-    await waitFor(() => expect(api.deleteGitHubToken).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Test GitHub PAT' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Remove/i })).not.toBeInTheDocument()
   })
 
   describe('LLM Provider model selection (v2.0.1)', () => {
@@ -128,20 +145,27 @@ describe('<Settings />', () => {
       )
     })
 
-    it('loads provider models into the Claude and OpenAI dropdowns on mount', async () => {
+    it('shows only the active provider settings and populates its model dropdown', async () => {
+      const user = userEvent.setup()
       render(<Settings />)
       await waitFor(() => expect(api.getModels).toHaveBeenCalledWith('claude'))
-      await waitFor(() => expect(api.getModels).toHaveBeenCalledWith('codex'))
 
+      // Default provider is Claude: only Anthropic settings are visible.
       const claudeSelect = (await screen.findByLabelText('Claude Model')) as HTMLSelectElement
       await waitFor(() =>
         expect(within(claudeSelect).getByRole('option', { name: 'Claude Opus 4' })).toBeInTheDocument(),
       )
-      // Claude keeps the agent-default empty option.
       expect(within(claudeSelect).getByRole('option', { name: /opus \(agent default\)/i })).toBeInTheDocument()
+      expect(screen.queryByLabelText('OpenAI Model')).not.toBeInTheDocument()
 
-      const openaiSelect = screen.getByLabelText('OpenAI Model') as HTMLSelectElement
-      expect(within(openaiSelect).getByRole('option', { name: 'o3' })).toBeInTheDocument()
+      // Switching to OpenAI hides Claude settings and reveals OpenAI settings.
+      await user.selectOptions(screen.getByLabelText('Active Provider'), 'codex')
+
+      const openaiSelect = (await screen.findByLabelText('OpenAI Model')) as HTMLSelectElement
+      await waitFor(() =>
+        expect(within(openaiSelect).getByRole('option', { name: 'o3' })).toBeInTheDocument(),
+      )
+      expect(screen.queryByLabelText('Claude Model')).not.toBeInTheDocument()
     })
 
     it('refreshes the Claude model list when "Refresh list" is clicked', async () => {
@@ -191,6 +215,154 @@ describe('<Settings />', () => {
       await screen.findByLabelText('Claude Model')
       expect(screen.getByLabelText(/Threat Modeler Max Turns/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/Enable adversarial 2nd pass/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('OpenAI API key status and Test button', () => {
+    const codexSettings = (openaiKey: string | null) => ({
+      settings: {
+        encryption_key_configured: true,
+        anthropic_api_key: null,
+        anthropic_base_url: 'https://api.anthropic.com',
+        openai_api_key: openaiKey,
+        openai_base_url: 'https://api.openai.com/v1',
+        llm_provider: 'codex',
+        claude_model: null,
+        openai_model: 'gpt-4.1',
+        claude_code_max_output_tokens: 32000,
+        github_max_archive_size_mb: 50,
+        updated_at: 't',
+      },
+    })
+
+    it('shows the configured status badge when a key is saved', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(codexSettings('***ENCRYPTED***'))
+      render(<Settings />)
+      expect(await screen.findByTestId('openai-key-status-configured')).toBeInTheDocument()
+      expect(screen.queryByTestId('openai-key-status-missing')).not.toBeInTheDocument()
+    })
+
+    it('shows the not-configured status badge when no key is saved', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(codexSettings(null))
+      render(<Settings />)
+      expect(await screen.findByTestId('openai-key-status-missing')).toBeInTheDocument()
+      expect(screen.queryByTestId('openai-key-status-configured')).not.toBeInTheDocument()
+    })
+
+    it('Test exercises the saved key via the models endpoint when the field is blank', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(codexSettings('***ENCRYPTED***'))
+      ;(api.getModels as jest.Mock).mockResolvedValue({ status: 'success', provider: 'codex', models: [] })
+      const user = userEvent.setup()
+      render(<Settings />)
+      await screen.findByTestId('openai-key-status-configured')
+      ;(api.getModels as jest.Mock).mockClear()
+
+      await user.click(screen.getByRole('button', { name: 'Test OpenAI API key' }))
+
+      await waitFor(() => expect(api.getModels).toHaveBeenCalledWith('codex'))
+      expect(await screen.findByText(/Saved OpenAI API key is valid/i)).toBeInTheDocument()
+      expect(api.validateApiKey).not.toHaveBeenCalled()
+    })
+
+    it('Test validates the entered key against the codex provider', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(codexSettings(null))
+      ;(api.validateApiKey as jest.Mock).mockResolvedValue({ valid: true, message: 'Key OK' })
+      const user = userEvent.setup()
+      render(<Settings />)
+      await screen.findByTestId('openai-key-status-missing')
+
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-openai-123')
+      await user.click(screen.getByRole('button', { name: 'Test OpenAI API key' }))
+
+      await waitFor(() =>
+        expect(api.validateApiKey).toHaveBeenCalledWith('sk-openai-123', 'https://api.openai.com/v1', 'codex'),
+      )
+      expect(await screen.findByText(/Key OK/i)).toBeInTheDocument()
+    })
+
+    it('Test warns when no key is entered and none is saved', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(codexSettings(null))
+      const user = userEvent.setup()
+      render(<Settings />)
+      await screen.findByTestId('openai-key-status-missing')
+
+      await user.click(screen.getByRole('button', { name: 'Test OpenAI API key' }))
+
+      expect(await screen.findByText(/Enter an OpenAI API key to test/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('Anthropic API key status and Test button', () => {
+    const claudeSettings = (anthropicKey: string | null) => ({
+      settings: {
+        encryption_key_configured: true,
+        anthropic_api_key: anthropicKey,
+        anthropic_base_url: 'https://api.anthropic.com',
+        openai_api_key: null,
+        openai_base_url: 'https://api.openai.com/v1',
+        llm_provider: 'claude',
+        claude_model: null,
+        openai_model: 'gpt-4.1',
+        claude_code_max_output_tokens: 32000,
+        github_max_archive_size_mb: 50,
+        updated_at: 't',
+      },
+    })
+
+    it('shows the configured status badge when a key is saved', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(claudeSettings('***ENCRYPTED***'))
+      render(<Settings />)
+      expect(await screen.findByTestId('anthropic-key-status-configured')).toBeInTheDocument()
+      expect(screen.queryByTestId('anthropic-key-status-missing')).not.toBeInTheDocument()
+    })
+
+    it('shows the not-configured status badge when no key is saved', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(claudeSettings(null))
+      render(<Settings />)
+      expect(await screen.findByTestId('anthropic-key-status-missing')).toBeInTheDocument()
+      expect(screen.queryByTestId('anthropic-key-status-configured')).not.toBeInTheDocument()
+    })
+
+    it('Test exercises the saved key via the models endpoint when the field is blank', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(claudeSettings('***ENCRYPTED***'))
+      ;(api.getModels as jest.Mock).mockResolvedValue({ status: 'success', provider: 'claude', models: [] })
+      const user = userEvent.setup()
+      render(<Settings />)
+      await screen.findByTestId('anthropic-key-status-configured')
+      ;(api.getModels as jest.Mock).mockClear()
+
+      await user.click(screen.getByRole('button', { name: 'Test Anthropic API key' }))
+
+      await waitFor(() => expect(api.getModels).toHaveBeenCalledWith('claude'))
+      expect(await screen.findByText(/Saved Anthropic API key is valid/i)).toBeInTheDocument()
+      expect(api.validateApiKey).not.toHaveBeenCalled()
+    })
+
+    it('Test validates the entered key against the claude provider', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(claudeSettings(null))
+      ;(api.validateApiKey as jest.Mock).mockResolvedValue({ valid: true, message: 'Key OK' })
+      const user = userEvent.setup()
+      render(<Settings />)
+      await screen.findByTestId('anthropic-key-status-missing')
+
+      await user.type(screen.getByLabelText('Anthropic API Key'), 'sk-ant-123')
+      await user.click(screen.getByRole('button', { name: 'Test Anthropic API key' }))
+
+      await waitFor(() =>
+        expect(api.validateApiKey).toHaveBeenCalledWith('sk-ant-123', 'https://api.anthropic.com', 'claude'),
+      )
+      expect(await screen.findByText(/Key OK/i)).toBeInTheDocument()
+    })
+
+    it('Test warns when no key is entered and none is saved', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(claudeSettings(null))
+      const user = userEvent.setup()
+      render(<Settings />)
+      await screen.findByTestId('anthropic-key-status-missing')
+
+      await user.click(screen.getByRole('button', { name: 'Test Anthropic API key' }))
+
+      expect(await screen.findByText(/Enter an Anthropic API key to test/i)).toBeInTheDocument()
     })
   })
 })

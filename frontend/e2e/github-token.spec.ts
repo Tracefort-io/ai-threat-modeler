@@ -9,21 +9,28 @@ async function stubAuthAndSettings(page: Page): Promise<void> {
       }),
     })
   })
+  const settingsBody = {
+    status: 'success',
+    settings: {
+      encryption_key_configured: true,
+      anthropic_api_key: '***ENCRYPTED***',
+      anthropic_base_url: 'https://api.anthropic.com',
+      openai_api_key: null,
+      openai_base_url: 'https://api.openai.com/v1',
+      llm_provider: 'claude',
+      claude_model: null,
+      openai_model: 'gpt-4.1',
+      claude_code_max_output_tokens: 32000,
+      github_max_archive_size_mb: 50,
+      updated_at: new Date().toISOString(),
+    },
+  }
   await page.route('**/api/settings', async (route) => {
-    if (route.request().method() === 'GET') {
+    const method = route.request().method()
+    if (method === 'GET' || method === 'PUT') {
       await route.fulfill({
         status: 200, contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'success',
-          settings: {
-            encryption_key_configured: true,
-            anthropic_api_key: '***ENCRYPTED***',
-            anthropic_base_url: 'https://api.anthropic.com',
-            claude_code_max_output_tokens: 32000,
-            github_max_archive_size_mb: 50,
-            updated_at: new Date().toISOString(),
-          },
-        }),
+        body: JSON.stringify(settingsBody),
       })
       return
     }
@@ -116,11 +123,12 @@ test.describe('GitHub PAT settings', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
     await page.locator('#github-token-name').fill('my-pat')
     await page.locator('#github-token').fill('ghp_e2e_token')
-    await page.getByRole('button', { name: /Save PAT/i }).click()
+    // The PAT is persisted by the global bottom "Save Configuration" button.
+    await page.getByRole('button', { name: 'Save Configuration' }).click()
     await expect(page.getByText(/PAT configured \(my-pat\)/)).toBeVisible()
   })
 
-  test('Test connection validates a PAT against the backend', async ({ page }) => {
+  test('Test validates the entered PAT against the backend', async ({ page }) => {
     await page.route('**/api/github/token', async (route) => {
       if (route.request().method() === 'GET') {
         await route.fulfill({
@@ -131,7 +139,9 @@ test.describe('GitHub PAT settings', () => {
       }
       await route.continue()
     })
+    let validateBody: { token?: string } | null = null
     await page.route('**/api/github/token/validate', async (route) => {
+      validateBody = route.request().postDataJSON() as { token?: string }
       await route.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify({ valid: true, login: 'octocat', scopes: ['repo'] }),
@@ -141,7 +151,39 @@ test.describe('GitHub PAT settings', () => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Settings' }).click()
     await page.locator('#github-token').fill('ghp_test_token')
-    await page.getByRole('button', { name: /Test connection/i }).click()
-    await expect(page.getByText(/Token is valid/)).toBeVisible()
+    await page.getByRole('button', { name: 'Test GitHub PAT' }).click()
+    await expect(page.getByText(/GitHub PAT is valid/)).toBeVisible()
+    expect(validateBody).toEqual({ token: 'ghp_test_token' })
+  })
+
+  test('Test validates the saved PAT when the field is blank', async ({ page }) => {
+    await page.route('**/api/github/token', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify({
+            token: { exists: true, name: 'mine', createdAt: 't', updatedAt: 't', lastUsedAt: null },
+          }),
+        })
+        return
+      }
+      await route.continue()
+    })
+    let validateBody: Record<string, unknown> | null = null
+    await page.route('**/api/github/token/validate', async (route) => {
+      validateBody = route.request().postDataJSON() as Record<string, unknown>
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ valid: true, login: 'octocat', scopes: ['repo'] }),
+      })
+    })
+
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await expect(page.getByText(/PAT configured \(mine\)/)).toBeVisible()
+    await page.getByRole('button', { name: 'Test GitHub PAT' }).click()
+    await expect(page.getByText(/Saved GitHub PAT is valid/)).toBeVisible()
+    // No token sent → backend falls back to the stored one.
+    expect(validateBody).toEqual({})
   })
 })

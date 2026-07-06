@@ -193,10 +193,26 @@ describe('GitHub Routes', () => {
       expect(r.body.valid).toBe(false);
     });
 
-    it('rejects empty token', async () => {
+    it('rejects an empty request when no PAT is saved', async () => {
+      (GitHubTokenModel.getDecrypted as jest.Mock).mockReturnValue(null);
       const r = await request(app).post('/api/github/token/validate').send({});
       expect(r.status).toBe(400);
       expect(r.body.valid).toBe(false);
+    });
+
+    it('falls back to the saved PAT when no token is provided', async () => {
+      (GitHubTokenModel.getDecrypted as jest.Mock).mockReturnValue('ghp_saved');
+      const fetchMock = jest.fn().mockResolvedValue({
+        ok: true, status: 200, headers: new Map<string, string>([['x-oauth-scopes', 'repo']]),
+        json: async () => ({ login: 'saved-user' }),
+      } as any);
+      global.fetch = fetchMock;
+      const r = await request(app).post('/api/github/token/validate').send({});
+      expect(r.status).toBe(200);
+      expect(r.body.valid).toBe(true);
+      expect(r.body.login).toBe('saved-user');
+      const authHeader = (fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers.Authorization;
+      expect(authHeader).toBe('Bearer ghp_saved');
     });
   });
 

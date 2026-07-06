@@ -16,7 +16,10 @@ const openaiModels = [
   { id: 'o3', label: 'o3' },
 ]
 
-async function stubSettingsPage(page: Page): Promise<{ getLastPut: () => Record<string, unknown> | null }> {
+async function stubSettingsPage(
+  page: Page,
+  opts: { openaiApiKey?: string | null; llmProvider?: 'claude' | 'codex' } = {},
+): Promise<{ getLastPut: () => Record<string, unknown> | null }> {
   let lastPutBody: Record<string, unknown> | null = null
 
   await page.route('**/api/auth/me', async (route) => {
@@ -45,9 +48,9 @@ async function stubSettingsPage(page: Page): Promise<{ getLastPut: () => Record<
     encryption_key_configured: true,
     anthropic_api_key: '***ENCRYPTED***',
     anthropic_base_url: 'https://api.anthropic.com',
-    openai_api_key: null,
+    openai_api_key: opts.openaiApiKey ?? null,
     openai_base_url: 'https://api.openai.com/v1',
-    llm_provider: 'claude',
+    llm_provider: opts.llmProvider ?? 'claude',
     claude_model: null as string | null,
     openai_model: 'gpt-4.1',
     claude_code_max_output_tokens: 32000,
@@ -106,17 +109,22 @@ test.beforeEach(async ({ page }) => {
 })
 
 test.describe('Settings — LLM Provider model selection (v2.0.1)', () => {
-  test('populates Claude and OpenAI model dropdowns from /api/settings/models', async ({ page }) => {
+  test('shows only the active provider settings and populates its model dropdown', async ({ page }) => {
     await stubSettingsPage(page)
     await page.goto('/')
     await page.getByRole('button', { name: 'Settings' }).click()
 
+    // Default provider is Claude: only Anthropic settings render.
     const claudeSelect = page.locator('#claude-model')
     await expect(claudeSelect).toContainText('Claude Opus 4')
     await expect(claudeSelect).toContainText('opus (agent default)')
+    await expect(page.locator('#openai-model')).toHaveCount(0)
 
+    // Switching to OpenAI hides Claude settings and reveals OpenAI settings.
+    await page.locator('#llm-provider').selectOption('codex')
     const openaiSelect = page.locator('#openai-model')
     await expect(openaiSelect).toContainText('o3')
+    await expect(page.locator('#claude-model')).toHaveCount(0)
   })
 
   test('saves the selected Claude model and shows a success toast', async ({ page }) => {
@@ -133,6 +141,36 @@ test.describe('Settings — LLM Provider model selection (v2.0.1)', () => {
     // The toast text has no trailing period; the inline banner does. Match the toast.
     await expect(page.getByText('Configuration saved successfully', { exact: true })).toBeVisible()
     await expect.poll(() => getLastPut()?.claude_model).toBe('claude-opus-4-20250514')
+  })
+
+  test('Anthropic API Key shows its configured status and Test validates the saved key', async ({ page }) => {
+    // Default stub: Claude is the active provider and its key is configured.
+    await stubSettingsPage(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    await expect(page.getByTestId('anthropic-key-status-configured')).toBeVisible()
+    await page.getByRole('button', { name: 'Test Anthropic API key' }).click()
+    await expect(page.getByText(/Saved Anthropic API key is valid/i)).toBeVisible()
+  })
+
+  test('OpenAI API Key shows its configured status and Test validates the saved key', async ({ page }) => {
+    await stubSettingsPage(page, { openaiApiKey: '***ENCRYPTED***', llmProvider: 'codex' })
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    await expect(page.getByTestId('openai-key-status-configured')).toBeVisible()
+    await page.getByRole('button', { name: 'Test OpenAI API key' }).click()
+    // Test with a blank field exercises the saved key via the models endpoint.
+    await expect(page.getByText(/Saved OpenAI API key is valid/i)).toBeVisible()
+  })
+
+  test('OpenAI API Key shows a not-configured status when no key is saved', async ({ page }) => {
+    await stubSettingsPage(page, { openaiApiKey: null, llmProvider: 'codex' })
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    await expect(page.getByTestId('openai-key-status-missing')).toBeVisible()
   })
 
   test('Reset to Defaults shows a confirmation toast', async ({ page }) => {
